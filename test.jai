@@ -8,6 +8,7 @@ test1 :: () {
     using mydata: struct {
         a: int;
         b: int;
+        did_catch: bool;
         did_finally: bool;
     };
 
@@ -21,7 +22,9 @@ test1 :: () {
             using data;
             c := a / b;
         },
-        catch = (_, ex) => {
+        catch = (data, ex) => {
+            using data;
+            data.did_catch = true;
             assert(ex == .INT_DIVIDE_BY_ZERO);
         },
         finally = (data, ex) => {
@@ -30,6 +33,7 @@ test1 :: () {
         }
     );
 
+    assert(did_catch);
     assert(did_finally);
     assert(a == 5); // not corrupted
     assert(b == 0); // not corrupted
@@ -39,6 +43,7 @@ test1 :: () {
 test2 :: () {
 
     using mydata: struct {
+        did_catch: bool;
         did_finally: bool;
     };
 
@@ -58,7 +63,9 @@ test2 :: () {
         try = (_) => {
             assert(false); // We are going to catch this assertion
         },
-        catch = (_, ex) => {
+        catch = (data, ex) => {
+            using data;
+            data.did_catch = true;
             assert(ex == .BREAKPOINT); // assert runs debug_break(), so expect .BREAKPOINT
         },
         finally = (data, ex) => {
@@ -67,6 +74,7 @@ test2 :: () {
         }
     );
 
+    assert(did_catch);
     assert(did_finally);
     print("[Test 2] Passed.\n");
 }

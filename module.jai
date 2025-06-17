@@ -6,7 +6,8 @@ jai_catch :: (
     $try:     (*T)->(),
     $catch:   (*T, Exception_Code)->() = null,
     $finally: (*T, Exception_Code)->() = null
-) -> Exception_Code {
+) -> Exception_Code
+#expand /* expand to not generate proc for each overload */ {
 
     try_proc :: (ctx: *#Context, data: *void) #c_call {
         push_context ctx { inline try(data); }
@@ -31,7 +32,8 @@ jai_catch :: (
     $try:     (*T)->(),
     $catch:   (*T, Exception_Code)->() = null,
     $finally: (*T, Exception_Code)->() = null
-) -> Exception_Code {
+) -> Exception_Code
+#expand /* expand to not generate proc for each overload */ {
 
     try_proc :: (ctx: *#Context, data: *void) #c_call {
         push_context ctx { inline try(data); }
