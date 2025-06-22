@@ -1,59 +1,104 @@
 // TODO: rather than using a static c library with callback functions I think it should be possible to figure out what the machine instructions are and use inline assembly to achieve the try-catch behaviour. But maybe that is more complex than I am giving it credit for, idk.
 
 jai_catch :: (
-    filter:   ..Exception_Code,
-    data:     *$T,
-    $try:     (*T)->(),
-    $catch:   (*T, Exception_Code)->() = null,
-    $finally: (*T, Exception_Code)->() = null
+    filter:    ..Exception_Code,
+    data:      *$T,
+    $$try:     (*T)->(),
+    $$catch:   (*T, Exception_Code)->() = null,
+    $$finally: (*T, Exception_Code)->() = null
 ) -> Exception_Code
 #expand /* expand to not generate proc for each overload */ {
 
-    try_proc :: (ctx: *#Context, data: *void) #c_call {
-        push_context ctx { inline try(data); }
-    }
+    #if is_constant(try) && is_constant(catch) && is_constant(finally) {
 
-    catch_proc :: #ifx !catch then null
-    else (ctx: *#Context, data: *void, ex: Exception_Code) #c_call {
-        push_context ctx { inline catch(data, ex); }
-    }
+        #assert try != null;
+        try_proc :: (ctx: *#Context, data: *void) #c_call {
+            push_context ctx { try(data); }
+        }
 
-    finally_proc :: #ifx !finally then null
-    else (ctx: *#Context, data: *void, ex: Exception_Code) #c_call {
-        push_context ctx { inline finally(data, ex); }
-    }
+        catch_proc :: #ifx !catch then null
+        else (ctx: *#Context, data: *void, ex: Exception_Code) #c_call {
+            push_context ctx { catch(data, ex); }
+        }
 
-    return jai_catch_try_except(*context, filter, data, try_proc, catch_proc, finally_proc);
+        finally_proc :: #ifx !finally then null
+        else (ctx: *#Context, data: *void, ex: Exception_Code) #c_call {
+            push_context ctx { finally(data, ex); }
+        }
+
+        return jai_catch_try_except(*context, filter, data,
+            try_proc, catch_proc, finally_proc);
+
+    } else {
+
+        if !try return 0;
+
+        wrapper_data := Wrapper.{
+            data    = data,
+            try     = xx try,
+            catch   = xx catch,
+            finally = xx finally,
+        };
+
+        return jai_catch_try_except(*context, filter, *wrapper_data,
+            wrapper_try_proc,
+            ifx catch   then wrapper_catch_proc,
+            ifx finally then wrapper_finally_proc);
+    }
 }
 
 jai_catch :: (
-    $filter:  (*T, Exception_Code) -> Exception_Resolution,
-    data:     *$T,
-    $try:     (*T)->(),
-    $catch:   (*T, Exception_Code)->() = null,
-    $finally: (*T, Exception_Code)->() = null
+    $$filter:  (*T, Exception_Code) -> Exception_Resolution,
+    data:      *$T,
+    $$try:     (*T)->(),
+    $$catch:   (*T, Exception_Code)->() = null,
+    $$finally: (*T, Exception_Code)->() = null
 ) -> Exception_Code
 #expand /* expand to not generate proc for each overload */ {
 
-    try_proc :: (ctx: *#Context, data: *void) #c_call {
-        push_context ctx { inline try(data); }
-    }
+    #if is_constant(try) && is_constant(catch) &&
+        is_constant(finally) && is_constant(filter)
+    {
+        try_proc :: (ctx: *#Context, data: *void) #c_call {
+            push_context ctx { try(data); }
+        }
 
-    filter_proc :: (ctx: *#Context, data: *void, ex: Exception_Code) -> Exception_Resolution #c_call {
-        push_context ctx { return inline filter(data, ex); }
-    }
+        filter_proc :: (ctx: *#Context, data: *void, ex: Exception_Code)
+        -> Exception_Resolution #c_call {
+            push_context ctx { return filter(data, ex); }
+        }
 
-    catch_proc :: #ifx !catch then null
-    else (ctx: *#Context, data: *void, ex: Exception_Code) #c_call {
-        push_context ctx { inline catch(data, ex); }
-    }
+        catch_proc :: #ifx !catch then null
+        else (ctx: *#Context, data: *void, ex: Exception_Code) #c_call {
+            push_context ctx { catch(data, ex); }
+        }
 
-    finally_proc :: #ifx !finally then null
-    else (ctx: *#Context, data: *void, ex: Exception_Code) #c_call {
-        push_context ctx { inline finally(data, ex); }
-    }
+        finally_proc :: #ifx !finally then null
+        else (ctx: *#Context, data: *void, ex: Exception_Code) #c_call {
+            push_context ctx { finally(data, ex); }
+        }
 
-    return jai_catch_try_except_filter(*context, filter_proc, data, try_proc, catch_proc, finally_proc);
+        return jai_catch_try_except_filter(*context, filter_proc, data,
+            try_proc, catch_proc, finally_proc);
+    } else {
+
+        if !try return 0;
+
+        wrapper_data := Wrapper.{
+            data    = data,
+            try     = xx try,
+            catch   = xx catch,
+            finally = xx finally,
+            filter  = xx filter,
+        };
+
+        return jai_catch_try_except_filter(*context,
+            wrapper_filter_proc,
+            *wrapper_data,
+            wrapper_try_proc,
+            ifx catch   then wrapper_catch_proc,
+            ifx finally then wrapper_finally_proc);
+    }
 }
 
 Exception_Code :: enum u32 {
@@ -95,8 +140,40 @@ Exception_Resolution :: enum s32 {
 
 #scope_file
 
-Try_Proc ::         #type (*#Context, *void)                 #c_call;
-Handler_Proc ::     #type (*#Context, *void, Exception_Code) #c_call;
+// These wrappers are for when you pass a procedure pointer,
+Wrapper :: struct {
+    data:    *void;
+    try:     (*void)->();
+    catch:   (*void, Exception_Code)->();
+    finally: (*void, Exception_Code)->();
+    filter:  (*void, Exception_Code)->Exception_Resolution;
+}
+
+wrapper_try_proc :: (ctx: *#Context, data: *void) #c_call {
+    push_context ctx {
+        data.(*Wrapper).try(data.(*Wrapper).data);
+    }
+}
+wrapper_catch_proc :: (ctx: *#Context, data: *void, ex: Exception_Code) #c_call {
+    push_context ctx {
+        data.(*Wrapper).catch(data.(*Wrapper).data, ex);
+    }
+}
+wrapper_finally_proc :: (ctx: *#Context, data: *void, ex: Exception_Code) #c_call {
+    push_context ctx {
+        data.(*Wrapper).finally(data.(*Wrapper).data, ex);
+    }
+}
+wrapper_filter_proc :: (ctx: *#Context, data: *void, ex: Exception_Code)
+-> Exception_Resolution #c_call {
+    push_context ctx {
+        return data.(*Wrapper).filter(data.(*Wrapper).data, ex);
+    }
+}
+
+Try_Proc ::     #type (*#Context, *void)                 #c_call;
+Handler_Proc :: #type (*#Context, *void, Exception_Code) #c_call;
+Filter_Proc ::  #type (*#Context, *void, Exception_Code) -> Exception_Resolution #c_call;
 
 jai_catch_try_except :: (
     ctx:     *#Context,
@@ -109,7 +186,7 @@ jai_catch_try_except :: (
 
 jai_catch_try_except_filter :: (
     ctx:     *#Context,
-    filter:  #type (*#Context, *void, Exception_Code) -> Exception_Resolution #c_call,
+    filter:  Filter_Proc,
     data:    *void,
     try:     Try_Proc,
     catch:   Handler_Proc,
